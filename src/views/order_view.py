@@ -1,28 +1,41 @@
 """
 Order view
-SPDX - License - Identifier: LGPL - 3.0 - or -later
+SPDX - License - Identifier: LGPL - 3.0 - or - later
 Auteurs : Gabriel C. Ullmann, Fabio Petrillo, 2025
 """
 import numbers
 from views.template_view import get_template, get_param
-from controllers.order_controller import create_order, delete_order, list_orders_from_mysql
+from controllers.order_controller import create_order, delete_order, list_orders_from_redis
 from controllers.product_controller import list_products
 from controllers.user_controller import list_users
 
 def show_order_form():
     """ Show order form and list """
-    # TODO: utilisez Redis seulement
-    orders = list_orders_from_mysql(10)
+    orders = list_orders_from_redis(10)
     products = list_products(99)
     users = list_users(99)
-    order_rows = [f"""
+    
+    order_rows = []
+    for order in orders:
+        if isinstance(order, dict):
+            o_id = order.get('id') or order.get(b'id')
+            o_total = order.get('total') or order.get(b'total')
+            o_id = o_id.decode('utf-8') if isinstance(o_id, bytes) else o_id
+            o_total = o_total.decode('utf-8') if isinstance(o_total, bytes) else o_total
+        else:
+            o_id = getattr(order, 'id', '')
+            o_total = getattr(order, 'total', getattr(order, 'total_amount', '0'))
+
+        order_rows.append(f"""
             <tr>
-                <td>{order.id}</td>
-                <td>${order.total_amount}</td>
-                <td><a href="/orders/remove/{order.id}">Supprimer</a></td>
-            </tr> """ for order in orders]
+                <td>{o_id}</td>
+                <td>${o_total}</td>
+                <td><a href="/orders/remove/{o_id}">Supprimer</a></td>
+            </tr> """)
+
     user_rows = [f"""<option key={user.id} value={user.id}>{user.name}</option>""" for user in users]
     product_rows = [f"""<option key={product.id} value={product.id}>{product.name} (${product.price})</option>""" for product in products]
+    
     return get_template(f"""
         <h2>Commandes</h2>
         <p>Voici les 10 derniers enregistrements :</p>
@@ -85,7 +98,7 @@ def register_order(params):
     
 def remove_order(order_id):
     """ Remove an order with the given ID """
-    result = delete_order(order_id)
+    result = delete_order(int(order_id))
     if result:
         return get_template(f"""
             <h2>Information: la commande {order_id} a été supprimée.</h2>
@@ -94,5 +107,5 @@ def remove_order(order_id):
     else:
         return get_template(f"""
                 <h2>Erreur</h2>
-                <code>{result}</code>
+                <code>Échec de la suppression de la commande {order_id}.</code>
             """)

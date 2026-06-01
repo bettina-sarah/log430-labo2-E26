@@ -1,8 +1,8 @@
 services:
   store_manager:
     build: .
-    volumes:
-      - .:/app
+    #volumes:
+    #  - .:/app
     networks:
       - labo02-network
     depends_on:
@@ -10,6 +10,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+    - "5000:5000"
       
   mysql:
     image: mysql:8.4.7

@@ -8,6 +8,7 @@ from models.order_item import OrderItem
 from models.order import Order
 from queries.read_order import get_orders_from_mysql
 from db import get_sqlalchemy_session, get_redis_conn
+import json
 
 def add_order(user_id: int, items: list):
     """Insert order with items in MySQL, keep Redis in sync"""
@@ -64,7 +65,6 @@ def add_order(user_id: int, items: list):
 
         session.commit()
 
-        # TODO: ajouter la commande à Redis
         add_order_to_redis(order_id, user_id, total_amount, items)
 
         return order_id
@@ -84,8 +84,6 @@ def delete_order(order_id: int):
         if order:
             session.delete(order)
             session.commit()
-
-            # TODO: supprimer la commande à Redis
             delete_order_from_redis(order_id)
             return 1  
         else:
@@ -98,28 +96,56 @@ def delete_order(order_id: int):
         session.close()
 
 def add_order_to_redis(order_id, user_id, total_amount, items):
-    """Insert order to Redis"""
+    """Insert order to Redis and update product counters"""
     r = get_redis_conn()
-    print(r)
+    try:
+        redis_key = f"order:{order_id}"
+        
+        r.hset(redis_key, mapping={
+            "user_id": str(user_id),
+            "total": str(total_amount),
+            "items": json.dumps(items)
+        })
+
+        for item in items:
+            pid = item['product_id']
+            qty = float(item['quantity'])
+            r.zincrby("top_products", qty, pid)
+
+        print(f"Écriture dans Redis réussie pour la commande {order_id}")
+    except Exception as e:
+        print(f"Erreur Redis : {e}")
 
 def delete_order_from_redis(order_id):
     """Delete order from Redis"""
-    pass
+    r = get_redis_conn()
+    try:
+        redis_key = f"order:{order_id}"
+        r.delete(redis_key)
+        print(f"Suppression Reddis pour la commande {order_id}")
+    except Exception as e:
+        print(f"Erreur Redis lors de la suppression : {e}")
+    
 
 def sync_all_orders_to_redis():
     """ Sync orders from MySQL to Redis """
-    # redis
     r = get_redis_conn()
+    old_orders = r.keys("order:*")
+    if old_orders:
+        r.delete(*old_orders)
     orders_in_redis = r.keys(f"order:*")
     rows_added = 0
     try:
         if len(orders_in_redis) == 0:
-            # mysql
-            orders_from_mysql = []
+            orders_from_mysql = get_orders_from_mysql()
             for order in orders_from_mysql:
-                # TODO: terminez l'implementation
-                print(order)
+                redis_key = f"order:{order.id}"
+                r.hset(redis_key, mapping = {
+                    "user_id": str(order.user_id),
+                    "total": str(order.total_amount)
+                })
             rows_added = len(orders_from_mysql)
+            print(f"Sync successful : {rows_added} orders copied to Redis.")
         else:
             print('Redis already contains orders, no need to sync!')
     except Exception as e:
