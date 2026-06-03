@@ -11,7 +11,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-    - "5000:5000"
+    - "5001:5000"
       
   mysql:
     image: mysql:8.4.7
